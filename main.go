@@ -15,54 +15,158 @@
 package main
 
 import (
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
-	"github.com/spf13/cobra/cobra/cmd"
+	"io/ioutil"
+
+	"github.com/alecthomas/kingpin"
+	homedir "github.com/mitchellh/go-homedir"
+)
+
+type cliconfig struct {
+	HubURL        string
+	UserKey       string
+	UserSecret    string
+	TLSSkipVerify bool
+}
+
+var (
+	cfg    = &cliconfig{}
+	cfgdir = ""
+	client *http.Client
+)
+
+var (
+	cli = kingpin.New("cli", "Deviceio Command Line Interface")
+)
+
+var (
+	configCommand       = cli.Command("configure", "Configure deviceio-cli")
+	configHubURL        = configCommand.Arg("hub-url", "Your hub api url").Required().String()
+	configUserKey       = configCommand.Arg("user-key", "Your user key").Required().String()
+	configUserSecret    = configCommand.Arg("user-secret", "Your user secret").Required().String()
+	configSkipTLSVerify = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()
+)
+
+var (
+	catCommand  = cli.Command("cat", "read a file from a device")
+	catDeviceID = catCommand.Arg("deviceid", "The target device").Required().String()
+	catPath     = catCommand.Arg("path", "Path to the file to read").Required().String()
 )
 
 func main() {
-	cmd.Execute()
+	mkconfigdir()
 
-	var cmdPrint = &cobra.Command{
-		Use:   "print [string to print]",
-		Short: "Print anything to the screen",
-		Long: `print is for printing anything back to the screen.
-            For many years people have printed back to the screen.
-            `,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Print: " + strings.Join(args, " "))
-		},
+	switch kingpin.MustParse(cli.Parse(os.Args[1:])) {
+	case configCommand.FullCommand():
+		config(*configHubURL, *configUserKey, *configUserSecret, *configSkipTLSVerify)
+
+	case catCommand.FullCommand():
+		cat(*catDeviceID, *catPath)
+	}
+}
+
+func mkconfigdir() {
+	dir, err := homedir.Dir()
+
+	if err != nil {
+		panic(err)
 	}
 
-	var cmdEcho = &cobra.Command{
-		Use:   "echo [string to echo]",
-		Short: "Echo anything to the screen",
-		Long: `echo is for echoing anything back.
-            Echo works a lot like print, except it has a child command.
-            `,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Print: " + strings.Join(args, " "))
-		},
+	dir = fmt.Sprintf("%v/.deviceio/cli", dir)
+	dir = strings.Replace(dir, "\\", "/", -1)
+
+	err = os.MkdirAll(dir, 0700)
+
+	if err != nil {
+		panic(err)
 	}
 
-	var cmdTimes = &cobra.Command{
-		Use:   "times [# times] [string to echo]",
-		Short: "Echo anything to the screen more times",
-		Long: `echo things multiple times back to the user by providing
-            a count and a string.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			for i := 0; i < echoTimes; i++ {
-				fmt.Println("Echo: " + strings.Join(args, " "))
-			}
-		},
+	cfgdir = dir
+}
+
+func ldconfig() {
+	file, err := os.Open(fmt.Sprintf("%v/default.json", cfgdir))
+	defer file.Close()
+
+	if os.IsNotExist(err) {
+		panic("No configuration found. Please run 'configure'")
 	}
 
-	cmdTimes.Flags().IntVarP(&echoTimes, "times", "t", 1, "times to echo the input")
+	err = json.NewDecoder(file).Decode(&cfg)
 
-	var rootCmd = &cobra.Command{Use: "app"}
-	rootCmd.AddCommand(cmdPrint, cmdEcho)
-	cmdEcho.AddCommand(cmdTimes)
-	rootCmd.Execute()
+	if err != nil {
+		panic(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: cfg.TLSSkipVerify,
+			},
+		},
+	}
+}
+
+func config(hubURL, userKey, userSecret string, tlsSkipVerify bool) {
+	jsonb, err := json.MarshalIndent(&cliconfig{
+		HubURL:        hubURL,
+		UserKey:       userKey,
+		UserSecret:    userSecret,
+		TLSSkipVerify: tlsSkipVerify,
+	}, "", "    ")
+
+	if err != nil {
+		panic(err)
+	}
+
+	defaultcfgf := fmt.Sprintf("%v/default.json", cfgdir)
+
+	err = ioutil.WriteFile(defaultcfgf, jsonb, 0700)
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+func cat(deviceid, path string) {
+	ldconfig()
+
+	if deviceid == "" {
+		panic("Device id not specified")
+	}
+
+	r, err := http.NewRequest(
+		"POST",
+		fmt.Sprintf("%v/device/%v/filesystem/read", strings.TrimRight(cfg.HubURL, "/"), deviceid),
+		nil,
+	)
+
+	r.Header.Add("X-Path", path)
+
+	if err != nil {
+		panic(err)
+	}
+
+	resp, err := client.Do(r)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if resp.StatusCode >= 300 {
+		panic(resp.Status)
+	}
+
+	_, err = io.Copy(os.Stdout, resp.Body)
+
+	if err != nil {
+		panic(err)
+	}
 }
