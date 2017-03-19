@@ -25,6 +25,8 @@ import (
 
 	"io/ioutil"
 
+	"log"
+
 	"github.com/alecthomas/kingpin"
 	homedir "github.com/mitchellh/go-homedir"
 )
@@ -44,17 +46,13 @@ var (
 
 var (
 	cli = kingpin.New("cli", "Deviceio Command Line Interface")
-)
 
-var (
 	configCommand       = cli.Command("configure", "Configure deviceio-cli")
 	configHubURL        = configCommand.Arg("hub-url", "Your hub api url").Required().String()
 	configUserKey       = configCommand.Arg("user-key", "Your user key").Required().String()
 	configUserSecret    = configCommand.Arg("user-secret", "Your user secret").Required().String()
 	configSkipTLSVerify = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()
-)
 
-var (
 	catCommand  = cli.Command("cat", "read a file from a device")
 	catDeviceID = catCommand.Arg("deviceid", "The target device").Required().String()
 	catPath     = catCommand.Arg("path", "Path to the file to read").Required().String()
@@ -157,16 +155,19 @@ func cat(deviceid, path string) {
 	resp, err := client.Do(r)
 
 	if err != nil {
-		panic(err)
+		log.Fatal(resp, err)
 	}
 
 	if resp.StatusCode >= 300 {
-		panic(resp.Status)
+		log.Fatal(resp, err)
 	}
 
-	_, err = io.Copy(os.Stdout, resp.Body)
+	log.Println(
+		resp.TransferEncoding,
+		resp.Header,
+	)
 
-	if err != nil {
-		panic(err)
-	}
+	buf := make([]byte, 250000)
+
+	io.CopyBuffer(os.Stdout, resp.Body, buf)
 }
