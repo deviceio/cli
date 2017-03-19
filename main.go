@@ -146,28 +146,48 @@ func cat(deviceid, path string) {
 		nil,
 	)
 
-	r.Header.Add("X-Path", path)
-
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
+	r.Header.Add("X-Path", path)
 
 	resp, err := client.Do(r)
 
 	if err != nil {
-		log.Fatal(resp, err)
+		log.Fatal(err)
 	}
 
 	if resp.StatusCode >= 300 {
-		log.Fatal(resp, err)
+		body, berr := ioutil.ReadAll(resp.Body)
+		log.Fatal(resp, err, string(body), berr)
 	}
 
-	log.Println(
-		resp.TransferEncoding,
-		resp.Header,
-	)
+	defer func() {
+		if resp.Trailer.Get("Error") != "" {
+			os.Stderr.Write([]byte(resp.Trailer.Get("Error")))
+			os.Stderr.Sync()
+		}
+	}()
 
-	buf := make([]byte, 250000)
+	buf := make([]byte, 33554432)
 
-	io.CopyBuffer(os.Stdout, resp.Body, buf)
+	for {
+		n, err := resp.Body.Read(buf)
+
+		if n == 0 && err == io.EOF {
+			return
+		} else if err != nil && err != io.EOF {
+			log.Fatal(err)
+		} else if err != nil && err != io.EOF {
+			os.Stdout.Write(buf[:n])
+			os.Stdout.Sync()
+
+			os.Stderr.Write([]byte(err.Error()))
+			os.Stderr.Sync()
+		}
+
+		os.Stdout.Write(buf[:n])
+		os.Stdout.Sync()
+	}
 }
