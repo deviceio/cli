@@ -15,152 +15,174 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"io/ioutil"
 
-	"log"
-
+	"github.com/Sirupsen/logrus"
 	"github.com/alecthomas/kingpin"
+	"github.com/deviceio/hmapi/hmclient"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/pquerna/otp/totp"
+	"github.com/spf13/viper"
 )
 
 type cliconfig struct {
-	HubURL        string
-	UserKey       string
-	UserSecret    string
-	TLSSkipVerify bool
+	HubAddr       string `json:"hub_api_addr,omitempty"`
+	HubPort       int    `json:"hub_api_port,omitempty"`
+	TLSSkipVerify bool   `json:"hub_api_skip_cert_verify,omitempty"`
+	UserID        string `json:"user_id,omitempty"`
+	UserPassword  string `json:"user_password,omitempty"`
+	UserSecret    string `json:"user_secret,omitempty"`
+}
+
+type hmapiAuth struct {
+	userID       string
+	userPassword string
+	userSecret   string
+}
+
+func (t *hmapiAuth) Sign(r *http.Request) {
+	code, _ := totp.GenerateCode(t.userSecret, time.Now())
+	r.Header.Set("Authorization", fmt.Sprintf("totp %v:%v:%v", t.userID, t.userPassword, code))
 }
 
 var (
-	cfg    = &cliconfig{}
-	cfgdir = ""
-	client *http.Client
-)
+	cli        = kingpin.New("cli", "Deviceio Command Line Interface")
+	cliProfile = cli.Flag("profile", "configuration profile to use. default is 'default'").Default("default").String()
 
-var (
-	cli = kingpin.New("cli", "Deviceio Command Line Interface")
-
-	configCommand       = cli.Command("configure", "Configure deviceio-cli")
-	configHubURL        = configCommand.Arg("hub-url", "Your hub api url").Required().String()
-	configUserKey       = configCommand.Arg("user-key", "Your user key").Required().String()
-	configUserSecret    = configCommand.Arg("user-secret", "Your user secret").Required().String()
+	configCommand       = cli.Command("configure", "Configures deviceio-cli")
+	configHubAddr       = configCommand.Arg("hub-api-address", "Your hub api ip or hostname").Required().String()
+	configHubPort       = configCommand.Arg("hub-api-port", "The port to access the hub api on").Required().Int()
+	configUserID        = configCommand.Arg("user-id", "Your user email, login or uuid").Required().String()
+	configUserPassword  = configCommand.Arg("user-password", "Your user password").Required().String()
+	configUserSecret    = configCommand.Arg("user-secret", "Your user secret for generating totp passcodes").Required().String()
 	configSkipTLSVerify = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()
 
-	catCommand  = cli.Command("cat", "read a file from a device")
-	catDeviceID = catCommand.Arg("deviceid", "The target device").Required().String()
-	catPath     = catCommand.Arg("path", "Path to the file to read").Required().String()
+	readCommand  = cli.Command("read", "read a file from a device to cli stdout")
+	readDeviceID = readCommand.Arg("deviceid", "The device id or hostname").Required().String()
+	readPath     = readCommand.Arg("path", "Path to the file to read").Required().String()
+
+	writeCommand  = cli.Command("write", "write data from cli stdin to file on device")
+	writeDeviceID = writeCommand.Arg("deviceid", "The device id or hostname").Required().String()
+	writePath     = writeCommand.Arg("path", "Path to the file to write").Required().String()
+	writeAppend   = writeCommand.Flag("append", "append data to end of file").Default("false").Bool()
 )
 
 func main() {
-	mkconfigdir()
+	homedir, err := homedir.Dir()
 
-	switch kingpin.MustParse(cli.Parse(os.Args[1:])) {
+	if err != nil {
+		logrus.Panic(err)
+	}
+
+	cliParse := kingpin.MustParse(cli.Parse(os.Args[1:]))
+
+	viper.SetConfigName(*cliProfile)
+	viper.AddConfigPath(strings.Replace(fmt.Sprintf("%v/.deviceio/cli/", homedir), "\\", "/", -1))
+	viper.AddConfigPath("$HOME/.deviceio/cli/")
+	viper.AddConfigPath(".")
+
+	viper.SetDefault("hub_api_addr", "127.0.0.1")
+	viper.SetDefault("hub_api_port", 4431)
+	viper.SetDefault("hub_api_skip_cert_verify", false)
+	viper.SetDefault("user_id", "")
+	viper.SetDefault("user_password", "")
+	viper.SetDefault("user_secret", "")
+
+	switch cliParse {
 	case configCommand.FullCommand():
-		config(*configHubURL, *configUserKey, *configUserSecret, *configSkipTLSVerify)
+		config(*configHubAddr, *configHubPort, *configUserID, *configUserPassword, *configUserSecret, *configSkipTLSVerify)
 
-	case catCommand.FullCommand():
-		cat(*catDeviceID, *catPath)
+	case readCommand.FullCommand():
+		loadConfig()
+		read(*readDeviceID, *readPath)
+
+	case writeCommand.FullCommand():
+		loadConfig()
+		write(*writeDeviceID, *writePath, *writeAppend)
 	}
 }
 
-func mkconfigdir() {
-	dir, err := homedir.Dir()
+func loadConfig() {
+	if err := viper.ReadInConfig(); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"error": err.Error(),
+		}).Panic("Error loading profile configuration. Please run configure.")
+	}
+}
+
+func config(hubAddr string, hubPort int, userID string, userPassword string, userSecret string, skipTLSVerify bool) {
+	homedir, err := homedir.Dir()
 
 	if err != nil {
 		panic(err)
 	}
 
-	dir = fmt.Sprintf("%v/.deviceio/cli", dir)
-	dir = strings.Replace(dir, "\\", "/", -1)
-
-	err = os.MkdirAll(dir, 0700)
-
-	if err != nil {
-		panic(err)
-	}
-
-	cfgdir = dir
-}
-
-func ldconfig() {
-	file, err := os.Open(fmt.Sprintf("%v/default.json", cfgdir))
-	defer file.Close()
-
-	if os.IsNotExist(err) {
-		panic("No configuration found. Please run 'configure'")
-	}
-
-	err = json.NewDecoder(file).Decode(&cfg)
-
-	if err != nil {
-		panic(err)
-	}
-
-	client = &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: cfg.TLSSkipVerify,
-			},
-		},
-	}
-}
-
-func config(hubURL, userKey, userSecret string, tlsSkipVerify bool) {
 	jsonb, err := json.MarshalIndent(&cliconfig{
-		HubURL:        hubURL,
-		UserKey:       userKey,
+		HubAddr:       hubAddr,
+		HubPort:       hubPort,
+		UserID:        userID,
+		UserPassword:  userPassword,
 		UserSecret:    userSecret,
-		TLSSkipVerify: tlsSkipVerify,
+		TLSSkipVerify: skipTLSVerify,
 	}, "", "    ")
 
 	if err != nil {
 		panic(err)
 	}
 
-	defaultcfgf := fmt.Sprintf("%v/default.json", cfgdir)
+	cfgdir := fmt.Sprintf("%v/.deviceio/cli", homedir)
+	cfgfile := fmt.Sprintf("%v/%v.json", cfgdir, *cliProfile)
 
-	err = ioutil.WriteFile(defaultcfgf, jsonb, 0700)
+	if err := os.MkdirAll(cfgdir, 0666); err != nil {
+		panic(err)
+	}
 
-	if err != nil {
+	if err := ioutil.WriteFile(cfgfile, jsonb, 0666); err != nil {
 		panic(err)
 	}
 }
 
-func cat(deviceid, path string) {
-	ldconfig()
-
-	if deviceid == "" {
-		panic("Device id not specified")
-	}
-
-	r, err := http.NewRequest(
-		"POST",
-		fmt.Sprintf("%v/device/%v/filesystem/read", strings.TrimRight(cfg.HubURL, "/"), deviceid),
-		nil,
+func read(deviceid, path string) {
+	c := hmclient.New(
+		hmclient.SchemeHTTPS,
+		viper.GetString("hub_api_addr"),
+		viper.GetInt("hub_api_port"),
+		&hmapiAuth{
+			userID:       viper.GetString("user_id"),
+			userPassword: viper.GetString("user_password"),
+			userSecret:   viper.GetString("user_secret"),
+		},
 	)
 
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	r.Header.Add("X-Path", path)
-
-	resp, err := client.Do(r)
+	formResult, err := c.
+		Resource(fmt.Sprintf("/device/%v/filesystem", deviceid)).
+		Form("read").
+		SetFieldAsString("path", path).
+		Submit()
 
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	resp := formResult.RawResponse()
 
 	if resp.StatusCode >= 300 {
-		body, berr := ioutil.ReadAll(resp.Body)
-		log.Fatal(resp, err, string(body), berr)
+		body, _ := ioutil.ReadAll(resp.Body)
+		logrus.WithFields(logrus.Fields{
+			"endpoint":     resp.Request.URL.Path,
+			"method":       resp.Request.Method,
+			"statusCode":   resp.StatusCode,
+			"responseBody": string(body),
+		}).Fatal("Error calling device endpoint")
 	}
 
 	defer func() {
@@ -170,24 +192,81 @@ func cat(deviceid, path string) {
 		}
 	}()
 
-	buf := make([]byte, 33554432)
+	buf := make([]byte, 250000)
 
-	for {
-		n, err := resp.Body.Read(buf)
+	if _, err := io.CopyBuffer(os.Stdout, resp.Body, buf); err != nil {
+		os.Stderr.Write([]byte(err.Error()))
+	}
+}
 
-		if n == 0 && err == io.EOF {
-			return
-		} else if err != nil && err != io.EOF {
+func write(deviceid, path string, append bool) {
+	c := hmclient.New(
+		hmclient.SchemeHTTPS,
+		viper.GetString("hub_api_addr"),
+		viper.GetInt("hub_api_port"),
+		&hmapiAuth{
+			userID:       viper.GetString("user_id"),
+			userPassword: viper.GetString("user_password"),
+			userSecret:   viper.GetString("user_secret"),
+		},
+	)
+
+	datar, dataw := io.Pipe()
+	done := make(chan bool)
+
+	go func() {
+		defer dataw.Close()
+		defer datar.Close()
+
+		buf := make([]byte, 250000)
+
+		for {
+			nr, rerr := os.Stdin.Read(buf)
+
+			if rerr != nil && rerr != io.EOF {
+				logrus.Fatal(rerr)
+			}
+
+			if rerr != nil && rerr == io.EOF {
+				break
+			}
+
+			if nr > 0 || rerr == io.EOF {
+				dataw.Write(buf[:nr])
+				continue
+			}
+
+			break
+		}
+	}()
+
+	go func() {
+		formResult, err := c.
+			Resource(fmt.Sprintf("/device/%v/filesystem", deviceid)).
+			Form("write").
+			SetFieldAsString("path", path).
+			SetFieldAsBool("append", append).
+			SetFieldAsOctetStream("data", datar).
+			Submit()
+
+		if err != nil {
 			log.Fatal(err)
-		} else if err != nil && err != io.EOF {
-			os.Stdout.Write(buf[:n])
-			os.Stdout.Sync()
-
-			os.Stderr.Write([]byte(err.Error()))
-			os.Stderr.Sync()
 		}
 
-		os.Stdout.Write(buf[:n])
-		os.Stdout.Sync()
-	}
+		resp := formResult.RawResponse()
+
+		if resp.StatusCode >= 300 {
+			body, _ := ioutil.ReadAll(resp.Body)
+			logrus.WithFields(logrus.Fields{
+				"endpoint":     resp.Request.URL.Path,
+				"method":       resp.Request.Method,
+				"statusCode":   resp.StatusCode,
+				"responseBody": string(body),
+			}).Fatal("Error calling device endpoint")
+		}
+
+		close(done)
+	}()
+
+	<-done
 }
