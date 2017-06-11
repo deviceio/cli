@@ -8,10 +8,10 @@ import (
 	"os"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/deviceio/hmapi/hmclient"
+	"github.com/deviceio/hmapi"
 )
 
-func Write(deviceid, path string, append bool, c hmclient.Client) {
+func Write(deviceid, path string, append bool, c hmapi.Client) {
 	datar, dataw := io.Pipe()
 	done := make(chan bool)
 
@@ -45,16 +45,16 @@ func Write(deviceid, path string, append bool, c hmclient.Client) {
 		formResult, err := c.
 			Resource(fmt.Sprintf("/device/%v/filesystem", deviceid)).
 			Form("write").
-			SetFieldAsString("path", path).
-			SetFieldAsBool("append", append).
-			SetFieldAsOctetStream("data", datar).
+			AddFieldAsString("path", path).
+			AddFieldAsBool("append", append).
+			AddFieldAsOctetStream("data", datar).
 			Submit()
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		resp := formResult.RawResponse()
+		resp := formResult.HttpResponse()
 
 		if resp.StatusCode >= 300 {
 			body, _ := ioutil.ReadAll(resp.Body)

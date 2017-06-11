@@ -9,9 +9,11 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/alecthomas/kingpin"
-	"github.com/deviceio/cli"
 	"github.com/deviceio/cli/device/fs"
-	"github.com/deviceio/hmapi/hmclient"
+	"github.com/deviceio/cli/device/sys"
+	"github.com/deviceio/cli/hub"
+	"github.com/deviceio/hmapi"
+	sdk "github.com/deviceio/sdk/go-sdk"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
 )
@@ -40,16 +42,21 @@ var (
 	deviceCommand = cliApp.Command("device", "invoke device functionality")
 	deviceID      = deviceCommand.Flag("device-id", "The hostname or ID of a device").Short('d').Required().String()
 
-	fsReadCommand = deviceCommand.Command("fs:read", "read a file from a device to cli stdout")
-	fsReadPath    = fsReadCommand.Arg("path", "Path to the file to read").Required().String()
+	deviceFSReadCommand = deviceCommand.Command("fs:read", "read a file from a device to cli stdout")
+	deviceFSReadPath    = deviceFSReadCommand.Arg("path", "Path to the file to read").Required().String()
 
-	fsWriteCommand = deviceCommand.Command("fs:write", "write data from cli stdin to file on device")
-	fsWritePath    = fsWriteCommand.Arg("path", "Path to the file to write").Required().String()
-	fsWriteAppend  = fsWriteCommand.Flag("append", "append data to end of file").Default("false").Bool()
+	deviceFSWriteCommand = deviceCommand.Command("fs:write", "write data from cli stdin to file on device")
+	deviceFSWritePath    = deviceFSWriteCommand.Arg("path", "Path to the file to write").Required().String()
+	deviceFSWriteAppend  = deviceFSWriteCommand.Flag("append", "append data to end of file").Default("false").Bool()
 
-	sysExecCommand = deviceCommand.Command("sys:exec", "execute a shell command on the remote device")
-	sysExecCmd     = sysExecCommand.Arg("cmd", "binary or executable file to execute").Required().String()
-	sysExecArgs    = sysExecCommand.Arg("args", "arguments").Strings()
+	deviceExecCommand = deviceCommand.Command("exec", "execute a shell command on the remote device")
+	deviceExecCmd     = deviceExecCommand.Arg("cmd", "binary or executable file to execute").Required().String()
+	deviceExecArgs    = deviceExecCommand.Arg("args", "arguments. If arguments contain a hyphen (-) you must specify (--) before the arg to ignore flag parsing from that point forward").Strings()
+
+	hubCommand = cliApp.Command("hub", "invoke hub functionality")
+
+	hubProxyCommand = hubCommand.Command("proxy", "hosts a local http proxy that signs requests to the hub api")
+	hubProxyPort    = hubProxyCommand.Flag("port", "The local port to listen on for http connections").Required().Int()
 )
 
 func main() {
@@ -77,13 +84,25 @@ func main() {
 	case configCommand.FullCommand():
 		config(*configHubAddr, *configHubPort, *configUserID, *configUserTOTPSecret, *configUserPrivateKey, *configSkipTLSVerify)
 
-	case fsReadCommand.FullCommand():
+	case deviceFSReadCommand.FullCommand():
 		loadConfig()
-		fs.Read(*deviceID, *fsReadPath, createClient())
+		fs.Read(*deviceID, *deviceFSReadPath, createClient())
 
-	case fsWriteCommand.FullCommand():
+	case deviceFSWriteCommand.FullCommand():
 		loadConfig()
-		fs.Write(*deviceID, *fsWritePath, *fsWriteAppend, createClient())
+		fs.Write(*deviceID, *deviceFSWritePath, *deviceFSWriteAppend, createClient())
+
+	case deviceExecCommand.FullCommand():
+		loadConfig()
+		sys.Exec(*deviceID, *deviceExecCmd, *deviceExecArgs, createSDKClient())
+
+	case hubProxyCommand.FullCommand():
+		loadConfig()
+		hub.Proxy(viper.GetString("hub_api_addr"), viper.GetInt("hub_api_port"), *hubProxyPort, &sdk.ClientAuth{
+			UserID:         viper.GetString("user_id"),
+			UserTOTPSecret: viper.GetString("user_totp_secret"),
+			UserPrivateKey: viper.GetString("user_private_key"),
+		})
 	}
 }
 
@@ -95,17 +114,27 @@ func loadConfig() {
 	}
 }
 
-func createClient() hmclient.Client {
-	return hmclient.New(
-		hmclient.SchemeHTTPS,
-		viper.GetString("hub_api_addr"),
-		viper.GetInt("hub_api_port"),
-		&cli.HMAPIAuth{
+func createClient() hmapi.Client {
+	return hmapi.NewClient(&hmapi.ClientConfig{
+		Auth: &sdk.ClientAuth{
 			UserID:         viper.GetString("user_id"),
 			UserTOTPSecret: viper.GetString("user_totp_secret"),
 			UserPrivateKey: viper.GetString("user_private_key"),
 		},
-	)
+		Scheme: hmapi.HTTPS,
+		Host:   viper.GetString("hub_api_addr"),
+		Port:   viper.GetInt("hub_api_port"),
+	})
+}
+
+func createSDKClient() sdk.Client {
+	return sdk.NewClient(sdk.ClientConfig{
+		UserID:     viper.GetString("user_id"),
+		TOTPSecret: viper.GetString("user_totp_secret"),
+		PrivateKey: viper.GetString("user_private_key"),
+		HubHost:    viper.GetString("hub_api_addr"),
+		HubPort:    viper.GetInt("hub_api_port"),
+	})
 }
 
 func config(hubAddr string, hubPort int, userID string, userTOTPSecret string, userPrivateKey string, skipTLSVerify bool) {

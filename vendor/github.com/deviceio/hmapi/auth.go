@@ -1,4 +1,4 @@
-package hmclient
+package hmapi
 
 import "net/http"
 

@@ -4,3 +4,5 @@ type Content struct {
 	Type  MediaType   `json:"type,omitempty"`
 	Value interface{} `json:"value,omitempty"`
 }
+
+type ContentRequest interface{}

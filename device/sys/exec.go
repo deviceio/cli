@@ -1,61 +1,71 @@
 package sys
 
 import (
-	"fmt"
+	"context"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/deviceio/hmapi/hmclient"
+	sdk "github.com/deviceio/sdk/go-sdk"
 )
 
-func Exec(deviceid, cmd string, args []string, c hmclient.Client) {
-	stdinReader, stdinWriter := io.Pipe()
+func Exec(deviceid, cmd string, args []string, c sdk.Client) {
+	ctx, cancel := context.WithCancel(context.Background())
 
-	go func() {
-		buf := make([]byte, 250000)
-
-		if _, err := io.CopyBuffer(stdinWriter, os.Stdin, buf); err != nil {
-			os.Stderr.Write([]byte(err.Error()))
-			return
-		}
-	}()
-
-	formResult, err := c.
-		Resource(fmt.Sprintf("/device/%v/system", deviceid)).
-		Form("exec").
-		SetFieldAsString("cmd", cmd).
-		SetFieldAsOctetStream("stdin", stdinReader).
-		Submit()
+	process, err := c.Device(deviceid).Process().Create(ctx, cmd, args)
 
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	resp := formResult.RawResponse()
-
-	if resp.StatusCode >= 300 {
-		body, _ := ioutil.ReadAll(resp.Body)
-		logrus.WithFields(logrus.Fields{
-			"endpoint":     resp.Request.URL.Path,
-			"method":       resp.Request.Method,
-			"statusCode":   resp.StatusCode,
-			"responseBody": string(body),
-		}).Fatal("Error calling device endpoint")
+		panic(err.Error())
 	}
 
 	defer func() {
-		if resp.Trailer.Get("Error") != "" {
-			os.Stderr.Write([]byte(resp.Trailer.Get("Error")))
-			os.Stderr.Sync()
+		err := process.Delete(ctx)
+		if err != nil {
+			log.Fatal("error destroying process:", err.Error())
 		}
 	}()
 
-	buf := make([]byte, 250000)
+	done := make(chan bool)
+	stdin := process.Stdin(ctx)
+	stdout := process.Stdout(ctx)
+	stderr := process.Stderr(ctx)
 
-	if _, err := io.CopyBuffer(os.Stdout, resp.Body, buf); err != nil {
-		os.Stderr.Write([]byte(err.Error()))
+	go func() {
+		if _, err := io.Copy(os.Stdout, stdout); err != nil {
+			if err != io.EOF {
+				cancel()
+			}
+		}
+		done <- true
+	}()
+
+	go func() {
+		if _, err := io.Copy(os.Stderr, stderr); err != nil {
+			if err != io.EOF {
+				cancel()
+			}
+		}
+		done <- true
+	}()
+
+	go func() {
+		if _, err := io.Copy(stdin, os.Stdin); err != nil {
+			if err != io.EOF {
+				cancel()
+			}
+		}
+		done <- true
+	}()
+
+	err = process.Start(ctx)
+
+	if err != nil {
+		cancel()
+	}
+
+	select {
+	case <-ctx.Done():
+		log.Fatal(ctx.Err())
+	case <-done:
 	}
 }

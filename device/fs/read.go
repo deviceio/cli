@@ -8,21 +8,21 @@ import (
 	"os"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/deviceio/hmapi/hmclient"
+	"github.com/deviceio/hmapi"
 )
 
-func Read(deviceid, path string, c hmclient.Client) {
+func Read(deviceid, path string, c hmapi.Client) {
 	formResult, err := c.
 		Resource(fmt.Sprintf("/device/%v/filesystem", deviceid)).
 		Form("read").
-		SetFieldAsString("path", path).
+		AddFieldAsString("path", path).
 		Submit()
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp := formResult.RawResponse()
+	resp := formResult.HttpResponse()
 
 	if resp.StatusCode >= 300 {
 		body, _ := ioutil.ReadAll(resp.Body)
