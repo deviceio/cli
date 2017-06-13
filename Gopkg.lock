@@ -5,13 +5,13 @@
   branch = "master"
   name = "github.com/Sirupsen/logrus"
   packages = ["."]
-  revision = "5e5dc898656f695e2a086b8e12559febbfc01562"
+  revision = "85b1699d505667d13f8ac4478c1debbf85d6c5de"
 
 [[projects]]
+  branch = "master"
   name = "github.com/alecthomas/kingpin"
   packages = ["."]
-  revision = "7f0871f2e17818990e4eed73f9b5c2f429501228"
-  version = "v2.2.4"
+  revision = "620a22ecbe08d13d2439c1e6911c7ad69b5134a4"
 
 [[projects]]
   branch = "master"
@@ -29,13 +29,19 @@
   branch = "master"
   name = "github.com/boombuler/barcode"
   packages = [".","qr","utils"]
-  revision = "335316296ea80cf3ec593dbdf0ce17016d5771c8"
+  revision = "a4f901055aa151cd82782e5e2cd0000d5a48eed7"
 
 [[projects]]
   branch = "master"
   name = "github.com/deviceio/hmapi"
   packages = ["."]
-  revision = "8bca6e5018d0c6c715a9086609370bca3c8785ec"
+  revision = "cfb7a1b081c272a8679b8c174380ca1ee8c267fa"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/deviceio/sdk"
+  packages = ["go-sdk"]
+  revision = "5f333fedd67e2136b7cb1b5fd22ebc336cf27b66"
 
 [[projects]]
   branch = "master"
@@ -54,12 +60,6 @@
   name = "github.com/hashicorp/hcl"
   packages = [".","hcl/ast","hcl/parser","hcl/scanner","hcl/strconv","hcl/token","json/parser","json/scanner","json/token"]
   revision = "392dba7d905ed5d04a5794ba89f558b27e2ba1ca"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/inconshreveable/mousetrap"
-  packages = ["."]
-  revision = "76626ae9c91c4f2a10f34cad8ce83ea42c93bb75"
 
 [[projects]]
   name = "github.com/magiconair/properties"
@@ -111,12 +111,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/spf13/cobra"
-  packages = ["."]
-  revision = "8d4ce3549a0bf0e3569df3aae7423b7743cd05a9"
-
-[[projects]]
-  branch = "master"
   name = "github.com/spf13/jwalterweatherman"
   packages = ["."]
   revision = "0efa5202c04663c757d84f90f5219c1250baf94f"
@@ -131,25 +125,25 @@
   branch = "master"
   name = "github.com/spf13/viper"
   packages = ["."]
-  revision = "0967fc9aceab2ce9da34061253ac10fb99bba5b2"
+  revision = "a1ecfa6a20bd4ef9e9caded262ee1b1b26847675"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["ed25519","ed25519/internal/edwards25519"]
-  revision = "e1a4589e7d3ea14a3352255d04b6f1a418845e5e"
+  revision = "fea6c2c83557701d46ea1cc0ea4c8272632fa3bd"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "b90f89a1e7a9c1f6b918820b3daa7f08488c8594"
+  revision = "0b25a408a50076fbbcae6b7ac0ea5fbb0b085e79"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/text"
   packages = ["internal/gen","internal/triegen","internal/ucd","transform","unicode/cldr","unicode/norm"]
-  revision = "ccbd3f7822129ff389f8ca4858a9b9d4d910531c"
+  revision = "3491b61b9edc56653ad4333e605e2908e46a036b"
 
 [[projects]]
   branch = "v2"
@@ -160,6 +154,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f09672d16111b85fd8774e694cb6b68f9edd1efaa01f24b522797f6388aa5ed2"
+  inputs-digest = "ee3aa54af093c80026961e5dce092aa33d80e23385fdc381cb0917e5330c48ff"
   solver-name = "gps-cdcl"
   solver-version = 1

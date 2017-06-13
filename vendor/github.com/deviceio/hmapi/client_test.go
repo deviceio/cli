@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type ClientTestSuite struct {
+type when_constructing_new_hmapi_client struct {
 	suite.Suite
 }
 
-func (t *ClientTestSuite) Test_NewClient_empty_config_expected_construction() {
+func (t *when_constructing_new_hmapi_client) Test_with_empty_config_returns_expected_construction() {
 	c := NewClient(&ClientConfig{}).(*client)
 
 	assert.Equal(t.T(), 80, c.config.Port)
@@ -20,6 +20,6 @@ func (t *ClientTestSuite) Test_NewClient_empty_config_expected_construction() {
 	assert.IsType(t.T(), new(AuthNone), c.config.Auth)
 }
 
-func TestClientTestSuite(t *testing.T) {
-	suite.Run(t, new(ClientTestSuite))
+func TestRunClientTestSuites(t *testing.T) {
+	suite.Run(t, new(when_constructing_new_hmapi_client))
 }

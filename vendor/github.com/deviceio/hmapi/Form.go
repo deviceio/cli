@@ -1,6 +1,8 @@
 package hmapi
 
 import (
+	"context"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,11 +14,19 @@ type FormRequest interface {
 	AddFieldAsString(name string, value string) FormRequest
 	AddFieldAsBool(name string, value bool) FormRequest
 	AddFieldAsOctetStream(name string, value io.Reader) FormRequest
-	Submit() (FormResponse, error)
+	AddFieldAsInt(name string, value int) FormRequest
+	Submit(ctx context.Context) (*FormResponse, error)
 }
 
-type FormResponse interface {
-	HttpResponse() *http.Response
+type FormResponse struct {
+	*http.Response
+}
+
+type FormSubmission interface {
+	Response() *http.Response
+	Err() error
+	Done() <-chan struct{}
+	Cancel()
 }
 
 type Form struct {
@@ -73,8 +83,13 @@ func (t *formRequest) AddFieldAsOctetStream(name string, value io.Reader) FormRe
 	return t
 }
 
-func (t *formRequest) Submit() (FormResponse, error) {
-	hmres, err := t.resource.Get()
+func (t *formRequest) AddFieldAsInt(name string, value int) FormRequest {
+	t.AddField(name, MediaTypeHMAPIInt, value)
+	return t
+}
+
+func (t *formRequest) Submit(ctx context.Context) (retresp *FormResponse, reterr error) {
+	hmres, err := t.resource.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -83,7 +98,7 @@ func (t *formRequest) Submit() (FormResponse, error) {
 	hmform, ok := hmres.Forms[t.name]
 
 	if !ok {
-		return nil, &FormNotFound{
+		return nil, &ErrResourceNoSuchForm{
 			FormName: t.name,
 			Resource: t.resource.path,
 		}
@@ -101,69 +116,111 @@ func (t *formRequest) Submit() (FormResponse, error) {
 		return nil, err
 	}
 
+	request = request.WithContext(ctx)
+
 	switch hmform.Enctype {
 	case MediaTypeMultipartFormData:
 		request.Header.Set("Content-Type", MediaTypeMultipartFormData.String())
 	default:
-		return nil, &UnsupportedMediaType{
+		return nil, &ErrUnsupportedMediaType{
 			MediaType: hmform.Enctype,
 		}
 	}
 
-	chresp, cherr := t.preflightHTTPRequest(request)
+	chresp := make(chan *http.Response)
+	chresperr := make(chan error)
+	chformerr := make(chan error)
 
-	switch hmform.Enctype {
-	case MediaTypeMultipartFormData:
-		mpwriter := multipart.NewWriter(bodyw)
-		mpwriter.SetBoundary(MultipartFormDataBoundry)
+	go func() {
+		resp, err := t.resource.client.do(request)
+		chresperr <- err
+		chresp <- resp
+	}()
 
-		for _, field := range t.fields {
-			switch field.mediaType {
-			case MediaTypeOctetStream:
-				fieldwriter, _ := mpwriter.CreateFormField(field.name)
-				io.Copy(fieldwriter, field.value.(io.Reader))
-
-			case MediaTypeHMAPIString:
-				mpwriter.WriteField(field.name, field.value.(string))
-
-			case MediaTypeHMAPIBoolean:
-				mpwriter.WriteField(field.name, strconv.FormatBool(field.value.(bool)))
-
-			default:
-				return nil, &UnsupportedMediaType{
-					MediaType: hmform.Enctype,
-				}
-			}
+	go func() {
+		switch hmform.Enctype {
+		case MediaTypeMultipartFormData:
+			t.writeMultipartForm(bodyw, hmform, chformerr)
+			bodyw.Close()
 		}
+	}()
 
-		mpwriter.Close()
-		bodyw.Close()
+waitforcomplete:
+	for {
+		select {
+		case formerr := <-chformerr:
+			reterr = formerr
+
+		case resperr := <-chresperr:
+			reterr = resperr
+
+		case resp := <-chresp:
+			retresp = &FormResponse{resp}
+			break waitforcomplete
+
+		case <-ctx.Done():
+			reterr = ctx.Err()
+			break waitforcomplete
+		}
 	}
 
-	resp, err := <-chresp, <-cherr
-
-	if err != nil {
-		return nil, err
-	}
-
-	result := &formResponse{
-		httpResponse: resp,
-	}
-
-	return result, nil
+	return retresp, reterr
 }
 
-func (t *formRequest) preflightHTTPRequest(r *http.Request) (chan *http.Response, chan error) {
-	chresp := make(chan *http.Response)
-	cherr := make(chan error)
+func (t *formRequest) writeMultipartForm(writer io.Writer, form *Form, cherr chan error) {
+	mpwriter := multipart.NewWriter(writer)
+	mpwriter.SetBoundary(MultipartFormDataBoundry)
+	defer mpwriter.Close()
 
-	go func(chresp chan *http.Response, cherr chan error, req *http.Request) {
-		resp, err := t.resource.client.do(r)
-		chresp <- resp
-		cherr <- err
-	}(chresp, cherr, r)
+	for _, field := range t.fields {
+		switch field.mediaType {
+		case MediaTypeOctetStream:
+			fieldreader, ok := field.value.(io.Reader)
 
-	return chresp, cherr
+			if !ok {
+				cherr <- errors.New("octetstream field is not a io.Reader")
+				return
+			}
+
+			fieldwriter, err := mpwriter.CreateFormField(field.name)
+
+			if err != nil {
+				cherr <- err
+				return
+			}
+
+			if _, err = io.Copy(fieldwriter, fieldreader); err != nil {
+				cherr <- err
+				return
+			}
+
+		case MediaTypeHMAPIInt:
+			if err := mpwriter.WriteField(field.name, strconv.FormatInt(int64(field.value.(int)), 10)); err != nil {
+				cherr <- err
+				return
+			}
+
+		case MediaTypeHMAPIString:
+			if err := mpwriter.WriteField(field.name, field.value.(string)); err != nil {
+				cherr <- err
+				return
+			}
+
+		case MediaTypeHMAPIBoolean:
+			if err := mpwriter.WriteField(field.name, strconv.FormatBool(field.value.(bool))); err != nil {
+				cherr <- err
+				return
+			}
+
+		default:
+			cherr <- &ErrUnsupportedMediaType{
+				MediaType: form.Enctype,
+			}
+			return
+		}
+	}
+
+	cherr <- nil
 }
 
 type formResponse struct {

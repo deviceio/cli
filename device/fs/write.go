@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -48,13 +49,13 @@ func Write(deviceid, path string, append bool, c hmapi.Client) {
 			AddFieldAsString("path", path).
 			AddFieldAsBool("append", append).
 			AddFieldAsOctetStream("data", datar).
-			Submit()
+			Submit(context.Background())
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		resp := formResult.HttpResponse()
+		resp := formResult
 
 		if resp.StatusCode >= 300 {
 			body, _ := ioutil.ReadAll(resp.Body)

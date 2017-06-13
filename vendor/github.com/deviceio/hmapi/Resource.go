@@ -1,12 +1,13 @@
 package hmapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 )
 
 type ResourceRequest interface {
-	Get() (*Resource, error)
+	Get(context.Context) (*Resource, error)
 	Form(name string) FormRequest
 	Link(name string) LinkRequest
 	Content(name string) ContentRequest
@@ -39,15 +40,17 @@ func (t *resourceRequest) Link(name string) LinkRequest {
 }
 
 func (t *resourceRequest) Content(name string) ContentRequest {
-	return nil
+	return &contentRequest{}
 }
 
-func (t *resourceRequest) Get() (*Resource, error) {
+func (t *resourceRequest) Get(ctx context.Context) (*Resource, error) {
 	request, err := http.NewRequest(GET.String(), t.client.baseuri+t.path, nil)
 
 	if err != nil {
 		return nil, err
 	}
+
+	request = request.WithContext(ctx)
 
 	resp, err := t.client.do(request)
 
@@ -55,11 +58,36 @@ func (t *resourceRequest) Get() (*Resource, error) {
 		return nil, err
 	}
 
-	var jsonResource *Resource
-
-	if err = json.NewDecoder(resp.Body).Decode(&jsonResource); err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		return nil, &ErrUnexpectedHTTPResponseStatus{
+			ExpectedStatus: http.StatusOK,
+			ActualStatus:   resp.StatusCode,
+			ClientRequest:  request,
+			ClientResponse: resp,
+		}
 	}
 
-	return jsonResource, nil
+	var resource *Resource
+
+	if err = json.NewDecoder(resp.Body).Decode(&resource); err != nil {
+		return nil, &ErrResourceUnmarshalFailure{
+			UnmarshalError: err,
+			ClientRequest:  request,
+			ClientResponse: resp,
+		}
+	}
+
+	if resource.Content == nil {
+		resource.Content = map[string]*Content{}
+	}
+
+	if resource.Forms == nil {
+		resource.Forms = map[string]*Form{}
+	}
+
+	if resource.Links == nil {
+		resource.Links = map[string]*Link{}
+	}
+
+	return resource, nil
 }

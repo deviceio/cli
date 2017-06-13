@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,13 +17,13 @@ func Read(deviceid, path string, c hmapi.Client) {
 		Resource(fmt.Sprintf("/device/%v/filesystem", deviceid)).
 		Form("read").
 		AddFieldAsString("path", path).
-		Submit()
+		Submit(context.Background())
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp := formResult.HttpResponse()
+	resp := formResult
 
 	if resp.StatusCode >= 300 {
 		body, _ := ioutil.ReadAll(resp.Body)

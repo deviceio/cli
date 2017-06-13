@@ -6,3 +6,6 @@ type Content struct {
 }
 
 type ContentRequest interface{}
+
+type contentRequest struct {
+}

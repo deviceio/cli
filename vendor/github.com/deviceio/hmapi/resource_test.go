@@ -1,78 +1,136 @@
 package hmapi
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
+	"net/url"
+
+	"net"
+
+	"strings"
+
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
-type ResourceTestSuite struct {
+type Test_ResourceRequest_when_calling_get struct {
 	suite.Suite
 }
 
-func (t *ResourceTestSuite) Test_Resoure_proper_json_marshal_unmarshal() {
-	res1 := &Resource{
-		Forms: map[string]*Form{
-			"AForm": &Form{
-				Method:  POST,
-				Type:    "WHATEVER",
-				Enctype: "WHATEVER",
-				Fields: []*FormField{
-					&FormField{
-						Name:     "WHATEVER",
-						Type:     "WHATEVER",
-						Encoding: "WHATEVER",
-						Required: true,
-						Multiple: true,
-						Value:    100,
-					},
-				},
-			},
-		},
-		Links: map[string]*Link{
-			"ALink": &Link{},
-		},
-		Content: map[string]*Content{
-			"AContent": &Content{},
-		},
-	}
+func (t *Test_ResourceRequest_when_calling_get) Test_request_successfully_canceled() {
+	objects := t.getTestServerAndClient()
+	defer objects.Server.Close()
 
-	resJSON, err := json.Marshal(res1)
+	ctx, cancel := context.WithCancel(context.Background())
 
+	objects.Mux.HandleFunc("/whatever", func(rw http.ResponseWriter, r *http.Request) {
+		cancel() // we cancel the ctx here to simulate a request already in flight
+		rw.WriteHeader(http.StatusOK)
+	})
+
+	res, err := objects.Client.Resource("/whatever").Get(ctx)
+
+	assert.Nil(t.T(), res)
+	assert.NotNil(t.T(), err)
+	assert.True(t.T(), strings.Contains(err.Error(), "context canceled"))
+}
+
+func (t *Test_ResourceRequest_when_calling_get) Test_returns_error_when_non_http_200_response() {
+	ret := t.getTestServerAndClient()
+	defer ret.Server.Close()
+
+	ret.Mux.HandleFunc("/resource", func(rw http.ResponseWriter, r *http.Request) {
+		rw.WriteHeader(http.StatusInternalServerError)
+	})
+
+	resource, err := ret.Client.Resource("/resource").Get(context.Background())
+
+	assert.Nil(t.T(), resource)
+	assert.NotNil(t.T(), err)
+
+	e, ok := err.(*ErrUnexpectedHTTPResponseStatus)
+	assert.True(t.T(), ok)
+	assert.Equal(t.T(), http.StatusOK, e.ExpectedStatus)
+	assert.Equal(t.T(), http.StatusInternalServerError, e.ActualStatus)
+}
+
+func (t *Test_ResourceRequest_when_calling_get) Test_returns_error_when_failed_json_decode() {
+	ret := t.getTestServerAndClient()
+	defer ret.Server.Close()
+
+	ret.Mux.HandleFunc("/resource", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Write([]byte("{some invalid json"))
+	})
+
+	resource, err := ret.Client.Resource("/resource").Get(context.Background())
+
+	assert.Nil(t.T(), resource)
+	assert.NotNil(t.T(), err)
+
+	_, ok := err.(*ErrResourceUnmarshalFailure)
+	assert.True(t.T(), ok)
+}
+
+func (t *Test_ResourceRequest_when_calling_get) Test_returns_minimal_resource() {
+	ret := t.getTestServerAndClient()
+	defer ret.Server.Close()
+
+	ret.Mux.HandleFunc("/resource", func(rw http.ResponseWriter, r *http.Request) {
+		resource := &Resource{
+			Forms:   map[string]*Form{},
+			Links:   map[string]*Link{},
+			Content: map[string]*Content{},
+		}
+
+		json.NewEncoder(rw).Encode(resource)
+	})
+
+	resource, err := ret.Client.Resource("/resource").Get(context.Background())
+
+	assert.NotNil(t.T(), resource)
 	assert.Nil(t.T(), err)
 
-	var res2 *Resource
+	assert.NotNil(t.T(), resource.Content)
+	assert.NotNil(t.T(), resource.Forms)
+	assert.NotNil(t.T(), resource.Links)
+}
 
-	err = json.Unmarshal(resJSON, &res2)
+func (t *Test_ResourceRequest_when_calling_get) getTestServerAndClient() (ret struct {
+	Mux    *mux.Router
+	Host   string
+	Port   int
+	Server *httptest.Server
+	Client Client
+}) {
+	mux := mux.NewRouter()
+	svr := httptest.NewServer(mux)
 
-	assert.Nil(t.T(), err)
-	assert.NotNil(t.T(), res2)
+	url, _ := url.Parse(svr.URL)
 
-	//form
-	assert.Equal(t.T(), len(res1.Forms), len(res2.Forms))
-	aform1, aform2 := res1.Forms["AForm"], res2.Forms["AForm"]
-	assert.Equal(t.T(), len(aform1.Fields), len(aform2.Fields))
-	assert.Equal(t.T(), aform1.Method, aform2.Method)
-	assert.Equal(t.T(), aform1.Type, aform2.Type)
-	assert.Equal(t.T(), aform1.Enctype, aform2.Enctype)
-	assert.Equal(t.T(), len(aform1.Fields), len(aform2.Fields))
-	afield1, afield2 := aform1.Fields[0], aform2.Fields[0]
-	assert.Equal(t.T(), afield1.Name, afield2.Name)
-	assert.Equal(t.T(), afield1.Type, afield2.Type)
-	assert.Equal(t.T(), afield1.Encoding, afield2.Encoding)
-	assert.Equal(t.T(), afield1.Required, afield2.Required)
-	assert.Equal(t.T(), afield1.Multiple, afield2.Multiple)
-	assert.Equal(t.T(), afield1.Value.(int), int(afield2.Value.(float64)))
+	hoststr, portstr, _ := net.SplitHostPort(url.Host)
+	port, _ := strconv.ParseInt(portstr, 10, 0)
 
-	//link
-	assert.Equal(t.T(), len(res1.Links), len(res2.Links))
+	client := NewClient(&ClientConfig{
+		Auth:   &AuthNone{},
+		Host:   hoststr,
+		Port:   int(port),
+		Scheme: HTTP,
+	})
 
-	//content
-	assert.Equal(t.T(), len(res1.Content), len(res2.Content))
+	ret.Mux = mux
+	ret.Host = hoststr
+	ret.Port = int(port)
+	ret.Server = svr
+	ret.Client = client
+	return
 }
 
 func TestResourceTestSuite(t *testing.T) {
-	suite.Run(t, new(ResourceTestSuite))
+	suite.Run(t, new(Test_ResourceRequest_when_calling_get))
 }

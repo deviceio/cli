@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"time"
@@ -37,7 +36,7 @@ func Proxy(hubHost string, hubPort int, localPort int, c *sdk.ClientAuth) {
 		logrus.WithField("error", err.Error()).Fatal("Error parsing reverse proxy url")
 	}
 
-	rp := httputil.NewSingleHostReverseProxy(rpurl)
+	rp := types.NewSingleHostReverseProxy(rpurl)
 	rpdir := rp.Director
 	rp.Director = func(r *http.Request) {
 		rpdir(r)

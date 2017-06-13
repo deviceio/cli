@@ -1,10 +1,8 @@
 package hmapi
 
 import (
-	"errors"
-	"io"
+	"context"
 	"net/http"
-	"strings"
 )
 
 type Link struct {
@@ -14,12 +12,11 @@ type Link struct {
 }
 
 type LinkRequest interface {
-	Get() (LinkResponse, error)
+	Get(context.Context) (*LinkResponse, error)
 }
 
-type LinkResponse interface {
-	HttpResponse() *http.Response
-	AsOctetStream() (io.Reader, error)
+type LinkResponse struct {
+	*http.Response
 }
 
 type linkRequest struct {
@@ -27,8 +24,8 @@ type linkRequest struct {
 	resource *resourceRequest
 }
 
-func (t *linkRequest) Get() (LinkResponse, error) {
-	res, err := t.resource.Get()
+func (t *linkRequest) Get(ctx context.Context) (*LinkResponse, error) {
+	res, err := t.resource.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -37,7 +34,7 @@ func (t *linkRequest) Get() (LinkResponse, error) {
 	hmlink, ok := res.Links[t.name]
 
 	if !ok {
-		return nil, &LinkNotFound{
+		return nil, &ErrResourceNoSuchLink{
 			LinkName: t.name,
 			Resource: t.resource.path,
 		}
@@ -59,25 +56,7 @@ func (t *linkRequest) Get() (LinkResponse, error) {
 		return nil, err
 	}
 
-	return &linkResponse{
-		httpResponse: resp,
+	return &LinkResponse{
+		resp,
 	}, nil
-}
-
-type linkResponse struct {
-	httpResponse *http.Response
-}
-
-func (t *linkResponse) HttpResponse() *http.Response {
-	return t.httpResponse
-}
-
-func (t *linkResponse) AsOctetStream() (io.Reader, error) {
-	ct := t.httpResponse.Header.Get("Content-Type")
-
-	if !strings.Contains(strings.ToLower(ct), strings.ToLower(MediaTypeOctetStream.String())) {
-		return nil, errors.New("response has invalid content type to become octet stream")
-	}
-
-	return t.httpResponse.Body, nil
 }
