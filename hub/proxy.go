@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -63,7 +64,11 @@ func Proxy(hubHost string, hubPort int, localPort int, c *sdk.ClientAuth) {
 		"tempkey":  keypath,
 	}).Info("Starting local hub api proxy")
 
-	http.ListenAndServeTLS(fmt.Sprintf(":%v", localPort), certpath, keypath, nil)
+	err = http.ListenAndServeTLS(fmt.Sprintf(":%v", localPort), certpath, keypath, nil)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func makeTempCertificates() (string, string) {
