@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 
 	"sync"
 
@@ -20,12 +21,13 @@ func Exec(deviceid, cmd string, args []string, c sdk.Client) {
 		panic(err.Error())
 	}
 
-	defer func() {
+	cleanup := func() {
 		err := process.Delete(context.Background())
 		if err != nil {
 			log.Println("error destroying process:", err.Error())
 		}
-	}()
+	}
+	defer cleanup()
 
 	data := &sync.WaitGroup{}
 	done := make(chan bool)
@@ -107,10 +109,16 @@ func Exec(deviceid, cmd string, args []string, c sdk.Client) {
 		done <- true
 	}()
 
+	sigch := make(chan os.Signal, 1)
+	signal.Notify(sigch, os.Interrupt)
+
 	select {
 	case <-ctx.Done():
 		log.Fatal(ctx.Err())
 	case <-done:
 		return
+	case <-sigch:
+		log.Println("interrupt")
+		cleanup()
 	}
 }

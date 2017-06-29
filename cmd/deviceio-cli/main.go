@@ -40,16 +40,19 @@ var (
 	configSkipTLSVerify  = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()
 
 	deviceCommand = cliApp.Command("device", "invoke device functionality")
-	deviceID      = deviceCommand.Flag("device-id", "The hostname or ID of a device").Short('d').Required().String()
+	//deviceID      = deviceCommand.Arg("device-id", "The hostname or ID of a device").Required().String()
 
 	deviceFSReadCommand = deviceCommand.Command("fs:read", "read a file from a device to cli stdout")
+	deviceFSReadDevice  = deviceFSReadCommand.Arg("device-id", "id or hostname of the device").Required().String()
 	deviceFSReadPath    = deviceFSReadCommand.Arg("path", "Path to the file to read").Required().String()
 
 	deviceFSWriteCommand = deviceCommand.Command("fs:write", "write data from cli stdin to file on device")
+	deviceFSWriteDevice  = deviceFSWriteCommand.Arg("device-id", "id or hostname of the device").Required().String()
 	deviceFSWritePath    = deviceFSWriteCommand.Arg("path", "Path to the file to write").Required().String()
 	deviceFSWriteAppend  = deviceFSWriteCommand.Flag("append", "append data to end of file").Default("false").Bool()
 
 	deviceExecCommand = deviceCommand.Command("exec", "execute a shell command on the remote device")
+	deviceExecDevice  = deviceExecCommand.Arg("device-id", "id or hostname of the device").Required().String()
 	deviceExecCmd     = deviceExecCommand.Arg("cmd", "binary or executable file to execute").Required().String()
 	deviceExecArgs    = deviceExecCommand.Arg("args", "arguments. If arguments contain a hyphen (-) you must specify (--) before the arg to ignore flag parsing from that point forward").Strings()
 
@@ -86,15 +89,15 @@ func main() {
 
 	case deviceFSReadCommand.FullCommand():
 		loadConfig()
-		fs.Read(*deviceID, *deviceFSReadPath, createClient())
+		fs.Read(*deviceFSReadDevice, *deviceFSReadPath, createClient())
 
 	case deviceFSWriteCommand.FullCommand():
 		loadConfig()
-		fs.Write(*deviceID, *deviceFSWritePath, *deviceFSWriteAppend, createClient())
+		fs.Write(*deviceFSWriteDevice, *deviceFSWritePath, *deviceFSWriteAppend, createClient())
 
 	case deviceExecCommand.FullCommand():
 		loadConfig()
-		sys.Exec(*deviceID, *deviceExecCmd, *deviceExecArgs, createSDKClient())
+		sys.Exec(*deviceExecDevice, *deviceExecCmd, *deviceExecArgs, createSDKClient())
 
 	case hubProxyCommand.FullCommand():
 		loadConfig()
