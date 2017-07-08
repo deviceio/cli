@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/Songmu/prompter"
 	"github.com/alecthomas/kingpin"
 	"github.com/deviceio/cli/device/fs"
 	"github.com/deviceio/cli/device/sys"
@@ -31,13 +34,13 @@ var (
 	cliApp     = kingpin.New("cli", "Deviceio Command Line Interface")
 	cliProfile = cliApp.Flag("profile", "configuration profile to use. default is 'default'").Default("default").String()
 
-	configCommand        = cliApp.Command("configure", "Configures deviceio-cli")
-	configHubAddr        = configCommand.Arg("hub-api-address", "Your hub api ip or hostname").Required().String()
+	configCommand = cliApp.Command("configure", "Configure deviceio-cli")
+	/*configHubAddr        = configCommand.Arg("hub-api-address", "Your hub api ip or hostname").Required().String()
 	configHubPort        = configCommand.Arg("hub-api-port", "The port to access the hub api on").Required().Int()
 	configUserID         = configCommand.Arg("user-id", "Your user email, login or uuid").Required().String()
 	configUserTOTPSecret = configCommand.Arg("user-totp-secret", "Your user totp secret").Required().String()
 	configUserPrivateKey = configCommand.Arg("user-private-key", "Your user private key").Required().String()
-	configSkipTLSVerify  = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()
+	configSkipTLSVerify  = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()*/
 
 	deviceCommand = cliApp.Command("device", "invoke device functionality")
 	//deviceID      = deviceCommand.Arg("device-id", "The hostname or ID of a device").Required().String()
@@ -85,7 +88,8 @@ func main() {
 
 	switch cliParse {
 	case configCommand.FullCommand():
-		config(*configHubAddr, *configHubPort, *configUserID, *configUserTOTPSecret, *configUserPrivateKey, *configSkipTLSVerify)
+		loadConfig()
+		configure()
 
 	case deviceFSReadCommand.FullCommand():
 		loadConfig()
@@ -140,21 +144,32 @@ func createSDKClient() sdk.Client {
 	})
 }
 
-func config(hubAddr string, hubPort int, userID string, userTOTPSecret string, userPrivateKey string, skipTLSVerify bool) {
+func configure() {
 	homedir, err := homedir.Dir()
 
 	if err != nil {
 		panic(err)
 	}
 
-	jsonb, err := json.MarshalIndent(&cliconfig{
-		HubAddr:        hubAddr,
-		HubPort:        hubPort,
-		UserID:         userID,
-		UserTOTPSecret: userTOTPSecret,
-		UserPrivateKey: userPrivateKey,
-		TLSSkipVerify:  skipTLSVerify,
-	}, "", "    ")
+	answers := &cliconfig{
+		HubAddr: prompter.Prompt("Hub API Address or Hostname", viper.GetString("hub_api_addr")),
+		HubPort: func() int {
+			port := prompter.Prompt("Hub API Port", viper.GetString("hub_api_port"))
+
+			i, err := strconv.Atoi(port)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			return i
+		}(),
+		UserID:         prompter.Prompt("User ID", viper.GetString("user_id")),
+		UserPrivateKey: prompter.Password("User Private Key"),
+		UserTOTPSecret: prompter.Password("User TOTP Secret"),
+	}
+
+	jsonb, err := json.MarshalIndent(answers, "", "    ")
 
 	if err != nil {
 		panic(err)
