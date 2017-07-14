@@ -8,6 +8,12 @@
   revision = "85b1699d505667d13f8ac4478c1debbf85d6c5de"
 
 [[projects]]
+  name = "github.com/Songmu/prompter"
+  packages = ["."]
+  revision = "b5721e8d556682bcef33262731d98a39dee14dc4"
+  version = "0.1.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/alecthomas/kingpin"
   packages = ["."]
@@ -30,6 +36,12 @@
   name = "github.com/boombuler/barcode"
   packages = [".","qr","utils"]
   revision = "a4f901055aa151cd82782e5e2cd0000d5a48eed7"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/deviceio/dsc"
+  packages = ["."]
+  revision = "50666651f91932e94371d62853fa4f4fc7b963fa"
 
 [[projects]]
   branch = "master"
@@ -68,6 +80,12 @@
   version = "v1.7.2"
 
 [[projects]]
+  name = "github.com/mattn/go-isatty"
+  packages = ["."]
+  revision = "fc9e8d8ef48496124e79ae0df75490096eccf6fe"
+  version = "v0.0.2"
+
+[[projects]]
   branch = "master"
   name = "github.com/mitchellh/go-homedir"
   packages = ["."]
@@ -78,6 +96,12 @@
   name = "github.com/mitchellh/mapstructure"
   packages = ["."]
   revision = "d0303fe809921458f417bcf828397a65db30a7e4"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/palantir/stacktrace"
+  packages = [".","cleanpath"]
+  revision = "78658fd2d1772b755720ed8c44367d11ee5380d6"
 
 [[projects]]
   name = "github.com/pelletier/go-buffruneio"
@@ -130,13 +154,13 @@
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
-  packages = ["ed25519","ed25519/internal/edwards25519"]
+  packages = ["ed25519","ed25519/internal/edwards25519","ssh/terminal"]
   revision = "fea6c2c83557701d46ea1cc0ea4c8272632fa3bd"
 
 [[projects]]
   branch = "master"
   name = "golang.org/x/sys"
-  packages = ["unix"]
+  packages = ["unix","windows","windows/svc","windows/svc/mgr"]
   revision = "0b25a408a50076fbbcae6b7ac0ea5fbb0b085e79"
 
 [[projects]]
@@ -154,6 +178,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ee3aa54af093c80026961e5dce092aa33d80e23385fdc381cb0917e5330c48ff"
+  inputs-digest = "724703388de4b76f3f71e8e46c0543c875f0a4a26ba0b54093891218fd11b056"
   solver-name = "gps-cdcl"
   solver-version = 1

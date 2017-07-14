@@ -15,9 +15,11 @@ import (
 	"github.com/deviceio/cli/device/fs"
 	"github.com/deviceio/cli/device/sys"
 	"github.com/deviceio/cli/hub"
+	"github.com/deviceio/dsc"
 	"github.com/deviceio/hmapi"
 	sdk "github.com/deviceio/sdk/go-sdk"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/palantir/stacktrace"
 	"github.com/spf13/viper"
 )
 
@@ -35,15 +37,8 @@ var (
 	cliProfile = cliApp.Flag("profile", "configuration profile to use. default is 'default'").Default("default").String()
 
 	configCommand = cliApp.Command("configure", "Configure deviceio-cli")
-	/*configHubAddr        = configCommand.Arg("hub-api-address", "Your hub api ip or hostname").Required().String()
-	configHubPort        = configCommand.Arg("hub-api-port", "The port to access the hub api on").Required().Int()
-	configUserID         = configCommand.Arg("user-id", "Your user email, login or uuid").Required().String()
-	configUserTOTPSecret = configCommand.Arg("user-totp-secret", "Your user totp secret").Required().String()
-	configUserPrivateKey = configCommand.Arg("user-private-key", "Your user private key").Required().String()
-	configSkipTLSVerify  = configCommand.Flag("insecure", "Do not verify hub api tls certificate").Short('i').Bool()*/
 
 	deviceCommand = cliApp.Command("device", "invoke device functionality")
-	//deviceID      = deviceCommand.Arg("device-id", "The hostname or ID of a device").Required().String()
 
 	deviceFSReadCommand = deviceCommand.Command("fs:read", "read a file from a device to cli stdout")
 	deviceFSReadDevice  = deviceFSReadCommand.Arg("device-id", "id or hostname of the device").Required().String()
@@ -69,16 +64,19 @@ func main() {
 	homedir, err := homedir.Dir()
 
 	if err != nil {
-		logrus.Panic(err)
+		log.Fatal(stacktrace.Propagate(err, "unable to locate user home directory"))
 	}
 
 	cliParse := kingpin.MustParse(cliApp.Parse(os.Args[1:]))
+	homePath := strings.Replace(fmt.Sprintf("%v/.deviceio/cli/", homedir), "\\", "/", -1)
+	configPath := fmt.Sprintf("%v/%v.json", homePath, *cliProfile)
+
+	ensureProfileConfigExists(configPath)
 
 	viper.SetConfigName(*cliProfile)
-	viper.AddConfigPath(strings.Replace(fmt.Sprintf("%v/.deviceio/cli/", homedir), "\\", "/", -1))
+	viper.AddConfigPath(homePath)
 	viper.AddConfigPath("$HOME/.deviceio/cli/")
 	viper.AddConfigPath(".")
-
 	viper.SetDefault("hub_api_addr", "127.0.0.1")
 	viper.SetDefault("hub_api_port", 4431)
 	viper.SetDefault("hub_api_skip_cert_verify", false)
@@ -110,6 +108,31 @@ func main() {
 			UserTOTPSecret: viper.GetString("user_totp_secret"),
 			UserPrivateKey: viper.GetString("user_private_key"),
 		})
+	}
+}
+
+func ensureProfileConfigExists(configPath string) {
+	f := &dsc.File{
+		Path:   configPath,
+		Absent: false,
+	}
+
+	if _, err := f.Apply(); err != nil {
+		log.Fatal(stacktrace.Propagate(
+			err,
+			"failed to create profile configuration file",
+		))
+	}
+
+	if content, err := ioutil.ReadFile(configPath); err != nil {
+		log.Fatal(stacktrace.Propagate(
+			err,
+			"failed to write default profile configuration file json",
+		))
+	} else {
+		if string(content) == "" {
+			ioutil.WriteFile(configPath, []byte("{}"), 0666)
+		}
 	}
 }
 
